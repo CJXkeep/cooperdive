@@ -117,6 +117,7 @@ docker compose logs -f scheduler dashboard
 ## 项目结构
 
 ```
+AGENTS.md          Agent 入口规则（硬约束 + 指路，改代码前先读）
 copper/
   config.py        全局配置与口径假设
   netutil.py       代理处理 / 重试 HTTP / akshare 重试
@@ -134,5 +135,5 @@ scripts/
 tests/             看板冒烟测试（streamlit AppTest）
 daqin/             大秦铁路防御-补跌监控（开发中，与 copper/ 平级，独立 data/daqin.db）
   thresholds.yaml  策略阈值（外置可调）
-docs/daqin/        大秦模块设计文档集（00-README ~ 06-设计决议与迭代计划，06 为开发基准）
+docs/daqin/        大秦模块设计文档集（00~06 为基准，06 含 24 项决议；iterations/ 为迭代设计与实现记录）
 ```

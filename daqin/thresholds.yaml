@@ -10,6 +10,7 @@
 # 修订：2026-09-20 v0.2 —— 按 docs/daqin/06 设计决议调整：
 #   D-01 FRED 免 key、D-02 秦皇岛库存改可选开关、D-04 移除旬度口径、
 #   D-05 煤价改 ZC 期货代理、D-07 电厂口径统一沿海六大电、D-17 hist_start 提前
+# 修订：2026-09-20 v0.3 —— 06 D-22 新增 repair.pp_avail_normal_days（S5 自动核）
 
 macro:
   us10y_high: 5.0              # M1 升级阈值
@@ -54,7 +55,9 @@ bottom:
   decline_narrowing_months: 2  # 运量降幅连续收窄月数
 
 repair:
-  inventory_down_weeks: 4      # S5 库存连续下降周数
+  inventory_down_weeks: 4      # S5 库存连续下降周数（qhd 增强项，仅 qhd_enabled 时参与）
+  # 06 §D-22：S5 自动核——电厂可用天数回落至该值以下视为需求恢复正常（默认口径下 S5 的可达性依赖本键）
+  pp_avail_normal_days: 20
 
 debounce:
   daily_confirm_days: 2        # 日频规则连续成立天数

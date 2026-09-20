@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+data/
+daqin/output/
+.pytest_cache/
+probe*.py

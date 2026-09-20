@@ -1,0 +1,10 @@
+# 由 .env 提供 DOMAIN / ACME_EMAIL / CADDY_HASH
+# CADDY_HASH 生成方法：docker compose --profile prod run --rm caddy hash-password
+# 然后把输出的 $2a$14$... 填入 .env
+{$DOMAIN} {
+	encode gzip
+	basic_auth {
+		admin {$CADDY_HASH}
+	}
+	reverse_proxy dashboard:8501
+}

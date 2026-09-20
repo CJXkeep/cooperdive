@@ -1,0 +1,61 @@
+# 大秦铁路防御-补跌监控（daqin-monitor）· 阈值与参数配置
+# 位置：daqin/thresholds.yaml（合并入 CopperPrice 仓库后）
+# 文档：docs/daqin/03-指标与信号设计.md §5、docs/daqin/02-数据层设计.md §5
+#
+# 约定：
+#   1. 全部阈值为示例初始值，以 docs/daqin/04 回测校准结果为准；
+#   2. 校准后写回本文件，并在下方 change_log 记录日期与依据；
+#   3. 代码不得内嵌阈值，一律从本文件读取。
+# 日期：2026-09-20 初版（未校准）
+
+macro:
+  us10y_high: 5.0              # M1 升级阈值
+  us10y_low_release: 4.8       # M1 解除阈值（滞回）
+  s1_timeout_days: 60          # S1 停留超此天数且无 D/K 恶化则回 S0
+  us10y_20d_chg_alert_bp: 30   # M2（辅助）
+  spread_inferior: 0.0         # M3 倒挂（辅助）
+  spread_advantage: 1.5        # 有比价优势（辅助）
+  csi300_drawdown_20d: -10     # M4
+
+demand:
+  qhd_inv_warn: 780            # D1 warn（万吨）
+  qhd_inv_danger: 800          # D1 danger（2008 触发值）
+  qhd_inv_level_release: 720   # 降级阈值（滞回）
+  qhd_inv_wow_pct: 5.0         # D2
+  qhd_inv_wow_weeks: 2
+  qhd_inv_yoy_pct: 20.0        # D3
+  dq_vol_yoy_warn: -5.0        # D4 旬度
+  dq_vol_yoy_danger: 0.0       # D4 月度转负
+  pp_available_days_high: 25   # D5（辅助）
+
+market:
+  rs_20d_turn_negative: 0.0    # K1
+  rs_60d_lookback_peak: 5.0
+  single_day_drop_pct: 5.0     # K2
+  volume_ratio_confirm: 1.5
+  ma_break: MA60               # K3
+  ma_below_days: 3
+
+bottom:
+  pb_below: 0.60               # K5
+  div_yield_above: 5.5
+  decline_narrowing_months: 2  # 运量降幅连续收窄月数
+
+repair:
+  inventory_down_weeks: 4      # S5 库存连续下降周数
+
+debounce:
+  daily_confirm_days: 2        # 日频规则连续成立天数
+
+position:                      # 示例仓位，仅参考
+  base: 0.60
+  s2_reduce_ratio: 0.33
+  s3_floor: 0.20
+  s4_rebuild_step: 0.10
+
+data:
+  fred_api_key_env: FRED_API_KEY   # 从环境变量读取，不入库不入 git
+  hist_start: "2007-01-01"
+  manual_data_dir: daqin/manual_data
+
+change_log: []                 # 校准记录：[{date, param, old, new, basis}]

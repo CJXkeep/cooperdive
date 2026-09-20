@@ -134,5 +134,5 @@ scripts/
 tests/             看板冒烟测试（streamlit AppTest）
 daqin/             大秦铁路防御-补跌监控（开发中，与 copper/ 平级，独立 data/daqin.db）
   thresholds.yaml  策略阈值（外置可调）
-docs/daqin/        大秦模块设计文档集（00-README ~ 05-开发计划）
+docs/daqin/        大秦模块设计文档集（00-README ~ 06-设计决议与迭代计划，06 为开发基准）
 ```

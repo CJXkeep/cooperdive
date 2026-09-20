@@ -7,6 +7,9 @@
 #   2. 校准后写回本文件，并在下方 change_log 记录日期与依据；
 #   3. 代码不得内嵌阈值，一律从本文件读取。
 # 日期：2026-09-20 初版（未校准）
+# 修订：2026-09-20 v0.2 —— 按 docs/daqin/06 设计决议调整：
+#   D-01 FRED 免 key、D-02 秦皇岛库存改可选开关、D-04 移除旬度口径、
+#   D-05 煤价改 ZC 期货代理、D-07 电厂口径统一沿海六大电、D-17 hist_start 提前
 
 macro:
   us10y_high: 5.0              # M1 升级阈值
@@ -18,15 +21,24 @@ macro:
   csi300_drawdown_20d: -10     # M4
 
 demand:
+  # 06 §D-02：秦皇岛库存无免费自动源，降级为「可选增强」子集；默认关闭，开箱即用
+  # 打开后需在 daqin/manual_data/industry_weekly.csv 手工周录
+  qhd_enabled: false
   qhd_inv_warn: 780            # D1 warn（万吨）
   qhd_inv_danger: 800          # D1 danger（2008 触发值）
   qhd_inv_level_release: 720   # 降级阈值（滞回）
   qhd_inv_wow_pct: 5.0         # D2
   qhd_inv_wow_weeks: 2
   qhd_inv_yoy_pct: 20.0        # D3
-  dq_vol_yoy_warn: -5.0        # D4 旬度
-  dq_vol_yoy_danger: 0.0       # D4 月度转负
-  pp_available_days_high: 25   # D5（辅助）
+  # 06 §D-04：旬度运量免费源不存在，已移除 dq_vol_yoy_warn（原旬度口径）
+  dq_vol_yoy_danger: 0.0       # D4 月度同比转负（自动核）
+  # 06 §D-07：电厂口径统一为沿海六大电（ak.macro_china_daily_energy，2016-01-01 起）
+  energy_scope: 沿海六大电
+  pp_available_days_high: 25   # D5 电厂可用天数过高（自动核）
+
+coal:                          # 06 §D-05：BSPI 不可得，用 ZC 期货主连做煤价粗代理
+  zc_min_volume_ratio: 0.3     # 成交额低于 20 日均该比例 → 视为无效主力，煤价信号禁用
+  zc_dev_20d_pct: -10.0        # D6 代理阈值：收盘低于 20 日均价 10% 视为煤价走弱
 
 market:
   rs_20d_turn_negative: 0.0    # K1
@@ -54,8 +66,14 @@ position:                      # 示例仓位，仅参考
   s4_rebuild_step: 0.10
 
 data:
-  fred_api_key_env: FRED_API_KEY   # 从环境变量读取，不入库不入 git
-  hist_start: "2007-01-01"
+  # 06 §D-01：改用免 key 的 fredgraph.csv 端点，不引入 fredapi 依赖
+  fred_csv_endpoint: https://fred.stlouisfed.org/graph/fredgraph.csv
+  fred_series:
+    us10y: DGS10
+    us10y_real: DFII10
+    us10y_ie: T10YIE
+  fred_api_key_env: FRED_API_KEY   # 保留但默认不使用；仅调用官方 FRED API 时才需要
+  hist_start: "2006-01-01"         # 06 §D-17：601006 于 2006-08 上市，取此起点预留 120 日 warm-up
   manual_data_dir: daqin/manual_data
 
 change_log: []                 # 校准记录：[{date, param, old, new, basis}]

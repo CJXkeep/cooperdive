@@ -18,6 +18,12 @@ def main() -> int:
     from copper import pipeline
 
     results = pipeline.update_all(only_stale=not args.full, names=args.names)
+    if not results:
+        from copper import collectors
+
+        avail = ", ".join(c.name for c in collectors.COLLECTORS)
+        print(f"未匹配到任何数据集：{args.names}\n可用数据集：{avail}")
+        return 1
     width = max(len(r.name) for r in results)
     for r in results:
         flag = "OK  " if r.ok else "FAIL"

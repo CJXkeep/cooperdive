@@ -109,12 +109,22 @@ def peers_normalized(conn: sqlite3.Connection) -> pd.DataFrame:
 
 
 def copper_markets_usd(conn: sqlite3.Connection) -> pd.DataFrame:
-    """三市场铜价统一折算美元/吨：沪铜÷汇率、LME 原值、COMEX 折算列。"""
+    """三市场铜价统一折算美元/吨：沪铜÷汇率、LME 原值、COMEX 折算列。
+
+    单源缺失时优雅降级而非报错：汇率缺失只丢「沪铜(折美元)」列，LME/COMEX 照常展示；
+    全部缺失时返回空表，由看板层提示「待采集」。
+    """
     shfe = _s(conn, "cu_shfe", "close")
     lme = _s(conn, "cu_lme", "close")
     comex = _s(conn, "cu_comex", "close_usd_ton")
     fx = _s(conn, "usdcny", "usdcny")
-    fx_daily = fx.reindex(pd.date_range(fx.index.min(), max(shfe.index.max(), fx.index.max()), freq="D")).ffill()
-    shfe_usd = shfe / fx_daily.reindex(shfe.index)
-    df = pd.DataFrame({"沪铜(折美元)": shfe_usd, "LME": lme, "COMEX": comex}).dropna(how="all")
-    return df
+
+    cols: dict[str, pd.Series] = {}
+    if not shfe.empty and not fx.empty:
+        start = min(shfe.index.min(), fx.index.min())
+        end = max(shfe.index.max(), fx.index.max())
+        fx_daily = fx.reindex(pd.date_range(start, end, freq="D")).ffill()
+        cols["沪铜(折美元)"] = shfe / fx_daily.reindex(shfe.index)
+    cols["LME"] = lme
+    cols["COMEX"] = comex
+    return pd.DataFrame(cols).dropna(how="all")

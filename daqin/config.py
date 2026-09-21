@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -24,3 +25,12 @@ MANUAL_DATA_DIR = PACKAGE_DIR / "manual_data"
 OUTPUT_DIR = PACKAGE_DIR / "output"
 
 DATETIME_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def today_cn() -> date:
+    """以北京时间计的「今天」。"""
+    return datetime.now(TZ).date()
+
+
+def iso(d: date) -> str:
+    return d.strftime("%Y-%m-%d")

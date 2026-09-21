@@ -79,6 +79,26 @@ def test_macro_aligned_to_t_minus_1() -> None:
     assert asof["asof_macro"] == dates[1]                  # 数据截止标注
 
 
+def test_zc_valid_and_dev_alignment() -> None:
+    """M1-1：ZC 有效主力过滤（D-05）+ 20 日偏离，对齐到交易日（lag=0）。"""
+    conn = db.connect(":memory:")
+    dates = _seed(conn, [10.0] * 30)
+    zc_rows = []
+    for i, d in enumerate(dates):
+        amount = 1000.0 if i < 28 else 100.0        # 最后 2 天成交额骤降 → 无效主力
+        zc_rows.append({"date": d, "zc_close": 600.0, "zc_volume": amount / 600.0,
+                        "zc_amount": amount, "zc_hold": 1.0})
+    db.upsert_rows(conn, "futures_daily", zc_rows)
+    compute_daily(conn)
+    rows = {r["date"]: r for r in conn.execute("SELECT date, zc_valid, zc_dev_20d FROM metrics_daily")}
+    assert rows[dates[10]]["zc_valid"] == 0                 # 20 日均额未成形 → 保守禁用
+    assert rows[dates[25]]["zc_valid"] == 1                 # 成交额正常 → 有效主力
+    assert rows[dates[29]]["zc_valid"] == 0                 # 骤降 → 无效，D6 被禁用
+    assert rows[dates[29]]["zc_dev_20d"] == pytest.approx(0.0)
+    asof = conn.execute("SELECT asof_industry FROM metrics_daily LIMIT 1").fetchone()
+    assert asof["asof_industry"] == dates[-1]               # 行业数据截止标注
+
+
 def test_empty_stock_returns_zero() -> None:
     conn = db.connect(":memory:")
     assert compute_daily(conn) == 0

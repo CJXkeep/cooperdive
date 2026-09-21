@@ -12,7 +12,7 @@ import sys
 
 import pandas as pd
 
-from daqin.collectors import akshare_stock, fred
+from daqin.collectors import akshare_stock, dividend, fred, futures
 from daqin.indicators.daily import compute_daily
 from daqin.signals.state_machine import run_daily
 from daqin.storage import db
@@ -23,6 +23,8 @@ from storage import set_freshness
 COLLECTORS = {
     "stock_daily": akshare_stock.collect,
     "macro_daily": fred.collect,
+    "futures_daily": futures.collect,       # M1-1：ZC 动力煤主连（D6 代理）
+    "dividend_events": dividend.collect,    # M1-5：分红派息（股息率 TTM）
 }
 
 

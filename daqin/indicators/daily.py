@@ -12,6 +12,7 @@ import pandas as pd
 
 from daqin.indicators.align import align_to_trading_days
 from daqin.storage import db
+from daqin.thresholds import load_thresholds
 
 WARMUP_DAYS = 180   # 自然日；覆盖 MA120 等指标预热（≥120 交易日，06 §4.6）
 
@@ -86,6 +87,23 @@ def compute_daily(conn: sqlite3.Connection, start: str | None = None, end: str |
         m["us10y"] = aligned.to_numpy()
         m["us10y_20d_chg"] = m["us10y"].diff(20) * 100.0   # 百分点差 → bp
         m["asof_macro"] = str(macro["date"].max())
+
+    # 煤价代理（M1-1，D-05）：有效主力过滤 + 20 日偏离；期货与 A 股同为 15:00 收盘 → lag=0
+    fut = pd.read_sql_query("SELECT date, zc_close, zc_amount FROM futures_daily ORDER BY date", conn)
+    if not fut.empty:
+        f = fut.set_index("date")
+        zc_close = pd.to_numeric(f["zc_close"], errors="coerce")
+        zc_amount = pd.to_numeric(f["zc_amount"], errors="coerce")
+        ratio = load_thresholds().coal.zc_min_volume_ratio
+        zc_frame = pd.DataFrame({
+            "zc_close": zc_close,
+            "zc_valid": (zc_amount >= zc_amount.rolling(20).mean() * ratio).fillna(False).astype(int),
+            "zc_dev_20d": (zc_close / zc_close.rolling(20).mean() - 1) * 100.0,
+        })
+        idx = pd.DatetimeIndex(stock.index)
+        for col in zc_frame.columns:
+            m[col] = align_to_trading_days(zc_frame[col], idx, lag_days=0).to_numpy()
+        m["asof_industry"] = str(f.index.max())
 
     if start:
         m = m[m.index >= start]   # 只写目标区间（warm-up 行不落库）

@@ -88,10 +88,10 @@ def test_d6_requires_valid_zc() -> None:
 def test_s4_and_s5_conditions() -> None:
     s4 = _row(daqin_pb=0.55, dividend_yield_ttm=6.0, dq_vol_yoy_narrow_streak=2)
     assert rules.s4_ready(s4, CFG)[0] is True
-    # D-22：S5 自动核不依赖 qhd（默认关闭时仍可达）
-    assert rules.s5_ready(_row(dq_vol_yoy=1.0, pp_avail_normal_streak=2), CFG)[0] is True
-    assert rules.s5_ready(_row(dq_vol_yoy=-1.0, pp_avail_normal_streak=5), CFG)[0] is False   # 运量未转正
-    assert rules.s5_ready(_row(dq_vol_yoy=1.0, pp_avail_normal_streak=1), CFG)[0] is False    # 回落未确认
+    # D-22 → D-26：S5 自动核不依赖 qhd / 电厂数据，用运量连续 2 月转正确认
+    assert rules.s5_ready(_row(dq_vol_yoy=1.0, dq_vol_yoy_lag1=0.5), CFG)[0] is True
+    assert rules.s5_ready(_row(dq_vol_yoy=-1.0, dq_vol_yoy_lag1=0.5), CFG)[0] is False   # 当月未转正
+    assert rules.s5_ready(_row(dq_vol_yoy=1.0, dq_vol_yoy_lag1=-0.5), CFG)[0] is False   # 上月未转正（单月噪声）
 
 
 def test_fired_rules_lists_hits() -> None:

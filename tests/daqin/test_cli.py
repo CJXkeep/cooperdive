@@ -46,7 +46,8 @@ def test_collect_failure_isolation_and_freshness(dbpath: Path, monkeypatch, caps
 
     monkeypatch.setitem(cli.COLLECTORS, "stock_daily", ok)
     monkeypatch.setitem(cli.COLLECTORS, "macro_daily", bad)
-    assert cli.main(["collect"]) == 1                       # 有失败 → 非零退出
+    # 限定范围，避免触发其他真实网络采集器
+    assert cli.main(["collect", "--names", "stock_daily", "macro_daily"]) == 1
     out = capsys.readouterr().out
     assert "[OK]   stock_daily" in out and "[FAIL] macro_daily" in out
 

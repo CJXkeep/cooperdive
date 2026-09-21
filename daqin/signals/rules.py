@@ -180,12 +180,13 @@ def s4_ready(row, cfg: Thresholds) -> Reason:
 
 
 def s5_ready(row, cfg: Thresholds) -> Reason:
-    """S5 进入（D-22）：运量转正 ∧ 电厂可用天数回落至正常（连续 N 日）；qhd 开启时叠加库存连续下降。"""
-    vol = _val(row, "dq_vol_yoy")
-    if vol is None or vol <= 0:
-        return False, ""
-    normal = _val(row, "pp_avail_normal_streak")
-    if normal is None or normal < cfg.debounce.daily_confirm_days:
+    """S5 进入（D-22 → D-26 二次修复）：运量**连续 2 个月**转正；qhd 开启时叠加库存连续下降。
+
+    D-26：原依赖的电厂可用天数（`pp_available_days`）数据源已停更（2019-06），
+    改用月频运量的连续性做"需求恢复"确认（`dq_vol_yoy` 与 `dq_vol_yoy_lag1` 均为正）。
+    """
+    vol, lag1 = _val(row, "dq_vol_yoy"), _val(row, "dq_vol_yoy_lag1")
+    if vol is None or lag1 is None or vol <= 0 or lag1 <= 0:
         return False, ""
     if cfg.demand.qhd_enabled:
         down = _val(row, "qhd_inv_down_streak")

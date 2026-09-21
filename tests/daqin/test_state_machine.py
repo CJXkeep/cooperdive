@@ -19,7 +19,7 @@ CFG = load_thresholds()
 M1_ROW = {"us10y": 5.2}
 K2_ROW = {"daily_return_pct": -6.0, "volume_ratio_5d": 2.0}
 S2_ROW = {"pp_available_days": 30.0, "rel_strength_20d": -1.0, "rs_60d_peak": 6.0}
-S5_ROW = {"dq_vol_yoy": 1.0, "pp_avail_normal_streak": 3}
+S5_ROW = {"dq_vol_yoy": 1.0, "dq_vol_yoy_lag1": 0.5}   # D-26：运量连续 2 月转正
 
 
 def _row(**kw) -> pd.Series:
@@ -59,7 +59,7 @@ def test_s2_demotes_to_s1_when_demand_recovers() -> None:
 
 
 def test_s3_to_s4_then_s5_without_qhd() -> None:
-    """D-22 核心：qhd 默认关闭时 S4 → S5 仍可达（旧设计下 S5 永不可达）。"""
+    """D-22/D-26 核心：qhd 关闭、电厂数据停更时，S4 → S5 仍可达（运量连续 2 月转正确认）。"""
     deb = new_debouncers(CFG)
     s4_row = _row(daqin_pb=0.55, dividend_yield_ttm=6.0, dq_vol_yoy_narrow_streak=2)
     assert next_state("S3", s4_row, CFG, deb) == "S4"

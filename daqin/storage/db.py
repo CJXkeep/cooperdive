@@ -64,8 +64,9 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
   us10y REAL, us10y_20d_chg REAL,
   dividend_yield_ttm REAL, spread_daqin_us10y REAL,
   -- 行情
-  daqin_close REAL, daily_return_pct REAL,
+  daqin_close REAL, daqin_pb REAL, daily_return_pct REAL,
   ma20 REAL, ma60 REAL, ma120 REAL, volume_ratio_5d REAL,
+  ma60_below_streak INTEGER,
   -- 相对强弱
   rel_strength_20d REAL, rel_strength_20d_lag1 REAL, rs_60d_peak REAL,
   csi300_drawdown_20d REAL,

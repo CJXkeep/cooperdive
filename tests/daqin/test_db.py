@@ -39,6 +39,12 @@ def test_metrics_daily_has_d22_column() -> None:
     assert "pp_avail_normal_streak" in cols
 
 
+def test_metrics_daily_has_k3_k5_columns() -> None:
+    """防漂移检查：D-25 补齐的 K3（连续破 MA60）与 K5（PB）列。"""
+    cols = {r[1] for r in _conn().execute("PRAGMA table_info(metrics_daily)")}
+    assert {"ma60_below_streak", "daqin_pb"} <= cols
+
+
 def test_upsert_rows_idempotent_and_updates() -> None:
     conn = _conn()
     row = {"date": "2020-03-23", "daqin_close": 7.22}

@@ -31,7 +31,8 @@
 | 手工数据 | `daqin/manual_data/` |
 | 回测输出 | `daqin/output/`（gitignore） |
 
-复用关系：网络重试/代理处理复用 `copper/netutil.py`；调度、看板、容器部署在 M1/M6 逐步并入仓库统一设施。
+复用关系：存储基座复用仓库级 `storage/`（连接 + freshness，06 D-20）；网络重试/代理处理复用 `copper/netutil.py`（06 D-19）；
+调度、看板、容器部署在 M1/M6 逐步并入仓库统一设施。
 
 ## 文档索引
 

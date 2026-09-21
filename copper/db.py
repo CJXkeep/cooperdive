@@ -1,21 +1,22 @@
-"""SQLite 存储层。
+"""SQLite 存储层（copper）。
 
 设计：
 - series 表为通用长表：dataset（数据集名）× date（ISO 日期）× key（字段名）→ value
 - 主键 (dataset, date, key)，写入用 INSERT OR REPLACE => 天然幂等，重跑不重不漏
-- freshness 表记录每个数据集的最近成功/尝试状态，看板据此显示数据新鲜度
+- freshness 表记录每个数据集的最近成功/尝试状态（连接与读写复用仓库级 storage 基座，D-20）
 """
 
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
 
 import pandas as pd
 
 from copper import config
+from storage import FRESHNESS_DDL
+from storage import sqlite as base
 
-_SCHEMA = """
+_SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS series (
     dataset TEXT NOT NULL,
     date    TEXT NOT NULL,
@@ -25,13 +26,7 @@ CREATE TABLE IF NOT EXISTS series (
 );
 CREATE INDEX IF NOT EXISTS idx_series_dataset_date ON series (dataset, date);
 
-CREATE TABLE IF NOT EXISTS freshness (
-    dataset      TEXT PRIMARY KEY,
-    last_success TEXT,
-    last_attempt TEXT,
-    rows_last    INTEGER,
-    last_error   TEXT
-);
+{FRESHNESS_DDL}
 
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -41,17 +36,7 @@ CREATE TABLE IF NOT EXISTS meta (
 
 
 def connect() -> sqlite3.Connection:
-    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.executescript(_SCHEMA)
-    return conn
-
-
-def _now() -> str:
-    return datetime.now(config.TZ).strftime(config.DATETIME_FMT)
+    return base.connect(config.DB_PATH, _SCHEMA)
 
 
 def upsert_series(rows: list[tuple[str, str, str, float]], conn: sqlite3.Connection | None = None) -> int:
@@ -125,28 +110,11 @@ def last_date(dataset: str, key: str = "close", conn: sqlite3.Connection | None 
 
 def set_freshness(dataset: str, ok: bool, rows: int = 0, error: str = "",
                   conn: sqlite3.Connection | None = None) -> None:
+    """记录一次采集结果（委托 storage 基座；ok=False 时保留历史 last_success）。"""
     own = conn is None
     conn = conn or connect()
-    now = _now()
     try:
-        with conn:
-            if ok:
-                conn.execute(
-                    """INSERT INTO freshness (dataset, last_success, last_attempt, rows_last, last_error)
-                       VALUES (?, ?, ?, ?, NULL)
-                       ON CONFLICT(dataset) DO UPDATE SET
-                         last_success=excluded.last_success, last_attempt=excluded.last_attempt,
-                         rows_last=excluded.rows_last, last_error=NULL""",
-                    (dataset, now, now, rows),
-                )
-            else:
-                conn.execute(
-                    """INSERT INTO freshness (dataset, last_success, last_attempt, rows_last, last_error)
-                       VALUES (?, NULL, ?, 0, ?)
-                       ON CONFLICT(dataset) DO UPDATE SET
-                         last_attempt=excluded.last_attempt, last_error=excluded.last_error""",
-                    (dataset, now, error[:500]),
-                )
+        base.set_freshness(conn, dataset, ok, rows, error)
     finally:
         if own:
             conn.close()
@@ -156,10 +124,7 @@ def get_freshness(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     own = conn is None
     conn = conn or connect()
     try:
-        return pd.read_sql_query(
-            "SELECT dataset, last_success, last_attempt, rows_last, last_error FROM freshness ORDER BY dataset",
-            conn,
-        )
+        return base.get_freshness(conn)
     finally:
         if own:
             conn.close()

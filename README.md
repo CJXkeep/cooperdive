@@ -118,6 +118,7 @@ docker compose logs -f scheduler dashboard
 
 ```
 AGENTS.md          Agent 入口规则（硬约束 + 指路，改代码前先读）
+storage/           仓库级存储基座（连接 + freshness，copper/daqin 共用）
 copper/
   config.py        全局配置与口径假设
   netutil.py       代理处理 / 重试 HTTP / akshare 重试

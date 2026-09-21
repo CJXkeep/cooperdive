@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY copper ./copper
 COPY daqin ./daqin
+COPY storage ./storage
 COPY scripts ./scripts
 COPY tests ./tests
 COPY .streamlit ./.streamlit

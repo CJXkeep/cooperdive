@@ -26,6 +26,7 @@ from daqin.thresholds import load_thresholds
 
 DEMAND_COLS = [
     "dq_vol_yoy", "dq_vol_yoy_lag1", "dq_vol_yoy_lag2", "dq_vol_yoy_narrow_streak",
+    "dq_vol_periodic_yoy",                       # D-30：定期报告累计同比（2014 前 D4 补充口径）
     "pp_available_days", "pp_avail_high_streak", "pp_avail_normal_streak",
     "asof_company",
 ]
@@ -37,14 +38,39 @@ HOLDER_COLS = ["inst_holding_ratio"]
 
 QHD_YOY_WEEKS = 52      # 库存同比的滞后周数
 HOLDER_LAG_DAYS = 45    # 季度末 → 筹码数据可用日的保守滞后
+PERIODIC_STALE_DAYS = 400   # 定期报告（半年/年频）的最长有效期：超过视为过期
 
 
 def add_demand(conn: sqlite3.Connection, m: pd.DataFrame) -> None:
-    """依次写入运量、电厂、qhd 增强与筹码列（原地）。"""
+    """依次写入运量、定期报告运量、电厂、qhd 增强与筹码列（原地）。"""
     add_volume(conn, m)
+    add_periodic(conn, m)
     add_energy(conn, m)
     add_qhd(conn, m)
     add_holders(conn, m)
+
+
+def add_periodic(conn: sqlite3.Connection, m: pd.DataFrame) -> None:
+    """定期报告运量同比（M5/D-30，2014 前 D4 的补充口径）。
+
+    按 `release_date`（公告发布日）可得；间隔约半年，故用 `PERIODIC_STALE_DAYS` 做停更保护，
+    避免 2014 年之后仍沿用 2013 年报的旧值。
+    """
+    cp = pd.read_sql_query(
+        "SELECT period, release_date, dq_vol_cum_yoy FROM company_periodic ORDER BY release_date", conn
+    )
+    if cp.empty:
+        return
+    idx = pd.DatetimeIndex(m.index)
+    s = pd.Series(
+        pd.to_numeric(cp["dq_vol_cum_yoy"], errors="coerce").to_numpy(),
+        index=pd.to_datetime(cp["release_date"], errors="coerce"),
+    ).dropna()
+    if s.empty:
+        return
+    aligned = align_to_trading_days(s, idx, lag_days=0)
+    aligned = aligned.where(idx <= s.index.max() + pd.Timedelta(days=PERIODIC_STALE_DAYS))
+    m["dq_vol_periodic_yoy"] = aligned.to_numpy()
 
 
 def add_volume(conn: sqlite3.Connection, m: pd.DataFrame) -> None:
@@ -72,12 +98,19 @@ def add_volume(conn: sqlite3.Connection, m: pd.DataFrame) -> None:
 
 
 def add_energy(conn: sqlite3.Connection, m: pd.DataFrame) -> None:
-    """日频电厂可用天数（M1-2）→ 交易日对齐 + 停更保护。"""
+    """日频电厂可用天数（M1-2）→ 交易日对齐 + 停更保护。
+
+    表为空（如 2016 年之前）时**也写列**（NULL + streak 0）：保持列存在性一致，
+    否则防未来函数抽查会因「完整库写 0、截断库整列缺失」而误报。
+    """
+    idx = pd.DatetimeIndex(m.index)
     en = pd.read_sql_query("SELECT date, pp_available_days FROM energy_daily ORDER BY date", conn)
     if en.empty:
+        m["pp_available_days"] = pd.Series([None] * len(idx), index=idx)
+        m["pp_avail_high_streak"] = 0
+        m["pp_avail_normal_streak"] = 0
         return
     cfg = load_thresholds()
-    idx = pd.DatetimeIndex(m.index)
     s = pd.Series(
         pd.to_numeric(en["pp_available_days"], errors="coerce").to_numpy(),
         index=pd.to_datetime(en["date"]),

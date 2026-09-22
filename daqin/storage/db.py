@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS company_monthly (
   dq_line_volume REAL, dq_line_volume_yoy REAL,
   source TEXT, art_code TEXT, fetched_at TEXT);
 
+-- 定期报告运量（M5/D-30：2014 前无月度简报时的 D4 补充口径，半年/年频）
+CREATE TABLE IF NOT EXISTS company_periodic (
+  period TEXT PRIMARY KEY,          -- 报告期截止日 YYYY-MM-DD（半年报 06-30 / 年报 12-31）
+  release_date TEXT,                -- 公告发布日 = 数据可得日
+  dq_vol_cum REAL,                  -- 报告期累计运量（万吨，大秦线口径）
+  dq_vol_cum_yoy REAL,              -- 累计同比（%）
+  source TEXT, announcement_id TEXT, fetched_at TEXT);
+
 -- 分红派息（股息率 TTM 用）
 CREATE TABLE IF NOT EXISTS dividend_events (
   ex_date TEXT PRIMARY KEY, dps REAL, source TEXT);
@@ -75,6 +83,7 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
   -- 需求：自动核
   dq_vol_yoy REAL, dq_vol_yoy_lag1 REAL, dq_vol_yoy_lag2 REAL,
   dq_vol_yoy_narrow_streak INTEGER,
+  dq_vol_periodic_yoy REAL,                       -- D-30：定期报告累计同比（2014 前的 D4 补充口径）
   pp_available_days REAL, pp_avail_high_streak INTEGER,
   pp_avail_normal_streak INTEGER,
   -- 需求：可选增强（qhd_enabled）
@@ -104,7 +113,8 @@ _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "stock_daily": [("daqin_close_raw", "REAL"), ("daqin_bps", "REAL"),                         # D-27
                     ("daqin_open", "REAL")],                                                   # M4 回测
     "metrics_daily": [("daqin_pb", "REAL"), ("ma60_below_streak", "INTEGER"),                   # D-25
-                      ("pp_avail_normal_streak", "INTEGER")],                                   # D-22
+                      ("pp_avail_normal_streak", "INTEGER"),                                    # D-22
+                      ("dq_vol_periodic_yoy", "REAL")],                                         # D-30
 }
 
 

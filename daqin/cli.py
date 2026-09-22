@@ -12,7 +12,9 @@ import sys
 
 import pandas as pd
 
-from daqin.collectors import akshare_stock, company_report, dividend, energy, fred, futures, valuation
+from daqin.collectors import (
+    akshare_stock, company_report, company_report_periodic, dividend, energy, fred, futures, valuation,
+)
 from daqin.indicators.daily import compute_daily
 from daqin.signals.state_machine import run_daily
 from daqin.storage import db
@@ -26,6 +28,7 @@ COLLECTORS = {
     "futures_daily": futures.collect,          # M1-1：ZC 动力煤主连（D6 代理）
     "dividend_events": dividend.collect,       # M1-5：分红派息（股息率 TTM）
     "company_monthly": company_report.collect, # M1-3：大秦线月度运量（公告自动解析）
+    "company_periodic": company_report_periodic.collect,  # M5/D-30：定期报告运量（2014 前 D4 补充口径）
     "energy_daily": energy.collect,            # M1-2：沿海六大电（仅历史段，D-26）
     "valuation": valuation.collect,            # M1-5：不复权价 + 季报 bps（写入 stock_daily，D-27）
 }
@@ -143,8 +146,12 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         )
         print(f"[OK]   报告：{path}")
 
-        if args.probe:
-            diffs = engine.lookahead_probe(conn, args.probe)
+        probe_dates = args.probe if args.probe is not None else [
+            event.anchor,
+            (pd.Timestamp(event.anchor) + pd.Timedelta(days=60)).strftime("%Y-%m-%d"),
+        ]
+        if probe_dates:
+            diffs = engine.lookahead_probe(conn, probe_dates)
             bad = {k: v for k, v in diffs.items() if v}
             print(f"[OK]   防未来函数抽查 {len(diffs)} 个时点：{'全部一致' if not bad else f'不一致 {bad}'}")
             return 1 if bad else 0
@@ -178,8 +185,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("backtest", help="回测（M4）：状态序列 → 净值 + 报告 + 防未来函数抽查")
     p.add_argument("--event", default="2020", help="事件键（见 daqin/backtest/events.py）")
     p.add_argument("--warmup", type=int, default=180, help="指标预热自然日（≥120 交易日）")
-    p.add_argument("--probe", nargs="*", default=["2020-03-23", "2020-09-30"],
-                   help="防未来函数抽查日期（传空则跳过）")
+    p.add_argument("--probe", nargs="*", default=None,
+                   help="防未来函数抽查日期（默认取事件锚点与锚点后 60 天；传空则跳过）")
     p.set_defaults(fn=cmd_backtest)
 
     args = parser.parse_args(argv)

@@ -31,7 +31,7 @@ PRICE_PAD_DAYS = 30   # 价格区间前多读的天数（区间首日的"决策�
 # raw 表 → 时间列（防未来函数截断用）
 _RAW_KEYS: dict[str, str] = {
     "stock_daily": "date", "macro_daily": "date", "futures_daily": "date", "energy_daily": "date",
-    "company_monthly": "month", "dividend_events": "ex_date",
+    "company_monthly": "month", "company_periodic": "period", "dividend_events": "ex_date",
     "industry_weekly": "week_end", "holder_quarterly": "quarter",
 }
 
@@ -172,13 +172,20 @@ def lookahead_probe(conn: sqlite3.Connection, probe_dates: list[str]) -> dict[st
     """
     full = _snapshot(conn)
     result: dict[str, list[str]] = {}
-    for t in probe_dates:
+    for probe in probe_dates:
+        t = _nearest_trading_day(full.index, probe)     # 非交易日会让比对失效，先对齐
         mem = db.connect(":memory:")
         _copy_raw_until(conn, mem, t)
         compute_daily(mem)
         got = _snapshot(mem)
         result[t] = _diff_row(full, got, t)
     return result
+
+
+def _nearest_trading_day(index, date: str) -> str:
+    """把抽查日对齐到 ≤ `date` 的最近交易日（无则原样返回）。"""
+    sub = [d for d in index if d <= date]
+    return sub[-1] if sub else date
 
 
 def _snapshot(conn: sqlite3.Connection) -> pd.DataFrame:

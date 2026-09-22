@@ -81,4 +81,13 @@ data:
   hist_start: "2006-01-01"         # 06 §D-17：601006 于 2006-08 上市，取此起点预留 120 日 warm-up
   manual_data_dir: daqin/manual_data
 
-change_log: []                 # 校准记录：[{date, param, old, new, basis}]
+change_log:                    # 校准记录：[{date, param, old, new, basis}]
+  - date: "2026-09-22"
+    param: "(无阈值变更)"
+    old: "-"
+    new: "-"
+    basis: >-
+      M5 单变量扫描 13 组（阈值 / 防抖 / 仓位）跑三事件（2008/2015/2020）：无任何阈值改善项，
+      故维持默认。观察项（未改，属策略设计而非阈值校准）：position.base 0.60→0.40 在三事件均降低回撤
+      （2015 −8.50%→−7.46%、2020 −5.43%→−3.97%），但会牺牲牛市收益；position.s3_floor 0.20→0.00
+      使 2008 回撤归零、却使 2015 回撤恶化。防抖 2 日优于 1/3 日。详见 docs/daqin/iterations/M5-扩展回测与校准.md

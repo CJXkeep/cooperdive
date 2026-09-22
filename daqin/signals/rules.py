@@ -93,9 +93,16 @@ def r_d3(row, cfg: Thresholds) -> Reason:
 
 
 def r_d4(row, cfg: Thresholds) -> Reason:
-    """D4 运量同比转负（月度，自动核）。"""
-    v = _val(row, "dq_vol_yoy")
-    return (v < cfg.demand.dq_vol_yoy_danger, "D4 运量转负") if v is not None else (False, "")
+    """D4 运量同比转负（自动核）。
+
+    口径（**D-30**）：月频 `dq_vol_yoy`（2014 起，月度简报）**或** 定期报告口径 `dq_vol_periodic_yoy`
+    （半年/年频，2006 起，来自半年报/年报）——两者时间上不重叠，任一为负即触发。
+    """
+    for col in ("dq_vol_yoy", "dq_vol_periodic_yoy"):
+        v = _val(row, col)
+        if v is not None and v < cfg.demand.dq_vol_yoy_danger:
+            return True, "D4 运量转负"
+    return False, ""
 
 
 def r_d5(row, cfg: Thresholds) -> Reason:

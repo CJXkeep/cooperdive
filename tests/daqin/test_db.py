@@ -45,6 +45,29 @@ def test_metrics_daily_has_k3_k5_columns() -> None:
     assert {"ma60_below_streak", "daqin_pb"} <= cols
 
 
+def test_stock_daily_has_valuation_columns() -> None:
+    """防漂移检查：D-27 的不复权价与每股净资产列（PB / 股息率 TTM 的计算基础）。"""
+    cols = {r[1] for r in _conn().execute("PRAGMA table_info(stock_daily)")}
+    assert {"daqin_close_raw", "daqin_bps"} <= cols
+
+
+def test_migrate_adds_missing_columns_on_old_db(tmp_path) -> None:
+    """旧库（缺列）连接时自动补列：CREATE TABLE IF NOT EXISTS 不会修改已存在的表。"""
+    import sqlite3
+
+    old_path = tmp_path / "old.db"
+    old = sqlite3.connect(old_path)
+    old.execute("CREATE TABLE stock_daily (date TEXT PRIMARY KEY, daqin_close REAL)")
+    old.execute("INSERT INTO stock_daily VALUES ('2020-01-02', 7.5)")
+    old.commit()
+    old.close()
+
+    conn = db.connect(old_path)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(stock_daily)")}
+    assert {"daqin_close_raw", "daqin_bps"} <= cols
+    assert conn.execute("SELECT daqin_close FROM stock_daily").fetchone()[0] == 7.5   # 既有数据保留
+
+
 def test_upsert_rows_idempotent_and_updates() -> None:
     conn = _conn()
     row = {"date": "2020-03-23", "daqin_close": 7.22}

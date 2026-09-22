@@ -73,12 +73,21 @@ def test_s4_s5_demote_immediately_on_k2_k3() -> None:
 
 
 def test_s3_to_s2_on_k1_with_demand_still_bad() -> None:
-    """03 §3.2 字面：K1 复现 ∧ D 未修复（demand_bad 成立）→ S3 回 S2。"""
+    """D-28：K1 复现 ∧ D 未修复 ∧ **技术恶化已解除** → S3 回 S2。"""
     row = _row(rel_strength_20d=-1.0, rs_60d_peak=6.0, dq_vol_yoy=-1.0)
     assert next_state("S3", row, CFG, new_debouncers(CFG)) == "S2"
     # D 已修复时不回 S2
     recovered = _row(rel_strength_20d=-1.0, rs_60d_peak=6.0, dq_vol_yoy=2.0)
     assert next_state("S3", recovered, CFG, new_debouncers(CFG)) == "S3"
+
+
+def test_s3_does_not_oscillate_when_k1_and_k3_both_hold() -> None:
+    """D-28：K1 与 K3 同时成立时，S3 不得降级（否则与升级条件互斥 → 状态振荡）。"""
+    both = _row(rel_strength_20d=-1.0, rs_60d_peak=6.0, dq_vol_yoy=-1.0, ma60_below_streak=5)
+    assert next_state("S3", both, CFG, new_debouncers(CFG)) == "S3"
+    # K3 解除后才降级
+    released = _row(rel_strength_20d=-1.0, rs_60d_peak=6.0, dq_vol_yoy=-1.0, ma60_below_streak=0)
+    assert next_state("S3", released, CFG, new_debouncers(CFG)) == "S2"
 
 
 def test_all_nan_row_is_inert() -> None:

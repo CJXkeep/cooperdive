@@ -89,9 +89,11 @@ def _demote(current: str, row, cfg: Thresholds, state_days: int) -> str:
     if current == "S2":
         return "S1" if not rules.demand_bad(row, cfg, release=True) else "S2"
     if current == "S3":
-        # 03 §3.2 字面：K1 复现 ∧ D 未修复（demand_bad 仍成立）→ 回 S2。
-        # ⚠️ 语义存疑：D 未修复时降级意味着加仓（20%→40%），待 M3 参数化复核（M0 §6 已登记）。
-        if rules.r_k1(row, cfg)[0] and rules.demand_bad(row, cfg):
+        # 03 §3.2 字面「K1 复现 ∧ D 未修复」在实盘数据下会与升级条件（K2∨K3）互斥冲突，
+        # 导致 S2↔S3 高频振荡（M1 实测 2020-04/05 交替换 20+ 次）→ 见 D-28。
+        # 修正：降级必须先确认**技术恶化已解除**（K2/K3 均不成立），再按 K1 ∧ D 未修复 逐级降。
+        k_bad = rules.r_k2(row, cfg)[0] or rules.r_k3(row, cfg)[0]
+        if not k_bad and rules.r_k1(row, cfg)[0] and rules.demand_bad(row, cfg):
             return "S2"
         return "S3"
     return current

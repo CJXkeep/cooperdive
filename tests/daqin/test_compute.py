@@ -108,3 +108,53 @@ def test_range_filter() -> None:
     conn = db.connect(":memory:")
     dates = _seed(conn, [10.0] * 10)
     assert compute_daily(conn, start=dates[3], end=dates[6]) == 4
+
+
+def test_pb_and_dividend_yield() -> None:
+    """M1-5：PB = 不复权价 ÷ bps；股息率 TTM 按除权日滚动 365 天。"""
+    conn = db.connect(":memory:")
+    dates = _seed(conn, [10.0] * 5)
+    db.upsert_rows(conn, "stock_daily", [
+        {"date": dates[i], "daqin_close_raw": 8.0 + i * 0.1} for i in range(5)
+    ])
+    db.upsert_rows(conn, "stock_daily", [{"date": dates[0], "daqin_bps": 4.0}])
+    db.upsert_rows(conn, "dividend_events", [{"ex_date": dates[1], "dps": 0.4, "source": "t"}], key="ex_date")
+    compute_daily(conn)
+    rows = {r["date"]: r for r in conn.execute("SELECT * FROM metrics_daily")}
+    assert rows[dates[0]]["daqin_pb"] == pytest.approx(2.0)                       # 8.0 / 4.0
+    assert rows[dates[0]]["dividend_yield_ttm"] == pytest.approx(0.0)             # 除权日前无 TTM 分红
+    assert rows[dates[1]]["dividend_yield_ttm"] == pytest.approx(0.4 / 8.1 * 100, rel=1e-6)
+
+
+def test_demand_alignment_from_monthly() -> None:
+    """M1-3：月频运量按「次月 10 日可得」对齐，lag1 取上一月，收窄连续月数正确。"""
+    conn = db.connect(":memory:")
+    _seed(conn, [10.0] * 80)                                  # 2019-10-01 ~ 2019-12-19
+    db.upsert_rows(conn, "company_monthly", [
+        {"month": "2019-09", "dq_line_volume": 3000.0, "dq_line_volume_yoy": -5.0},
+        {"month": "2019-10", "dq_line_volume": 3200.0, "dq_line_volume_yoy": -2.0},
+    ], key="month")
+    compute_daily(conn)
+    rows = {r["date"]: r for r in conn.execute(
+        "SELECT date, dq_vol_yoy, dq_vol_yoy_lag1, dq_vol_yoy_narrow_streak, asof_company FROM metrics_daily")}
+    assert rows["2019-10-09"]["dq_vol_yoy"] is None            # 9 月数据在 10-10 前不可得
+    assert rows["2019-10-10"]["dq_vol_yoy"] == pytest.approx(-5.0)
+    assert rows["2019-11-10"]["dq_vol_yoy"] == pytest.approx(-2.0)
+    assert rows["2019-11-10"]["dq_vol_yoy_lag1"] == pytest.approx(-5.0)
+    assert rows["2019-11-10"]["dq_vol_yoy_narrow_streak"] == 1  # -2.0 > -5.0 收窄
+    assert rows["2019-11-10"]["asof_company"] == "2019-10"
+
+
+def test_energy_streaks() -> None:
+    """M1-2：电厂可用天数对齐 + 高位连续天数（D5）。"""
+    conn = db.connect(":memory:")
+    dates = _seed(conn, [10.0] * 40)
+    db.upsert_rows(conn, "energy_daily", [
+        {"date": dates[i], "pp_available_days": 30.0 if i < 10 else 15.0} for i in range(40)
+    ])
+    compute_daily(conn)
+    rows = {r["date"]: r for r in conn.execute(
+        "SELECT date, pp_avail_high_streak, pp_avail_normal_streak FROM metrics_daily")}
+    assert rows[dates[5]]["pp_avail_high_streak"] == 6          # 30 > 25 连续 6 天
+    assert rows[dates[12]]["pp_avail_high_streak"] == 0         # 回落后归零
+    assert rows[dates[12]]["pp_avail_normal_streak"] == 3       # 15 < 20 连续 3 天

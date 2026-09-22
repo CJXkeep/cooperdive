@@ -15,6 +15,7 @@ from daqin.storage import db
 from daqin.thresholds import load_thresholds
 
 WARMUP_DAYS = 180   # 自然日；覆盖 MA120 等指标预热（≥120 交易日，06 §4.6）
+STALE_DAYS = 30     # 日频外部数据的最长前向填充：源站停更/长时间缺数后不得继续沿用旧值
 
 # 06 §3 DDL 的 metrics_daily 列（除 date）；asof_* 为文本列
 METRIC_COLS = [
@@ -44,7 +45,8 @@ def compute_daily(conn: sqlite3.Connection, start: str | None = None, end: str |
     指定 `start` 时会**多读 warm-up 段**（MA120 等指标需要），但只写入 `start` 之后的行。
     """
     stock = pd.read_sql_query(
-        "SELECT date, daqin_close, daqin_amount, csi300_close FROM stock_daily ORDER BY date", conn
+        "SELECT date, daqin_close, daqin_close_raw, daqin_bps, daqin_amount, csi300_close"
+        " FROM stock_daily ORDER BY date", conn
     )
     if stock.empty:
         return 0
@@ -64,7 +66,7 @@ def compute_daily(conn: sqlite3.Connection, start: str | None = None, end: str |
     m = pd.DataFrame(index=stock.index)
     # 行情
     m["daqin_close"] = close
-    m["daily_return_pct"] = close.pct_change() * 100.0
+    m["daily_return_pct"] = close.pct_change(fill_method=None) * 100.0
     m["ma20"] = close.rolling(20).mean()
     m["ma60"] = close.rolling(60).mean()
     m["ma120"] = close.rolling(120).mean()
@@ -72,7 +74,7 @@ def compute_daily(conn: sqlite3.Connection, start: str | None = None, end: str |
     m["ma60_below_streak"] = _streak(close < m["ma60"])
     m["csi300_drawdown_20d"] = (csi / csi.rolling(20).max() - 1) * 100.0
     # 相对强弱（百分点）
-    m["rel_strength_20d"] = (close.pct_change(20) - csi.pct_change(20)) * 100.0
+    m["rel_strength_20d"] = (close.pct_change(20, fill_method=None) - csi.pct_change(20, fill_method=None)) * 100.0
     m["rel_strength_20d_lag1"] = m["rel_strength_20d"].shift(1)
     m["rs_60d_peak"] = m["rel_strength_20d"].rolling(60).max()
 
@@ -105,9 +107,86 @@ def compute_daily(conn: sqlite3.Connection, start: str | None = None, end: str |
             m[col] = align_to_trading_days(zc_frame[col], idx, lag_days=0).to_numpy()
         m["asof_industry"] = str(f.index.max())
 
+    _add_valuation(conn, stock, m)
+    _add_demand(conn, m)
+
     if start:
         m = m[m.index >= start]   # 只写目标区间（warm-up 行不落库）
     return _upsert(conn, m)
+
+
+def _add_valuation(conn: sqlite3.Connection, stock: pd.DataFrame, m: pd.DataFrame) -> None:
+    """估值与股息率（M1-5/D-27）。
+
+    - PB = 不复权收盘价 ÷ 每股净资产（季报，采集时已按报告期 + 90 天转为可用日，前向填充到日频）；
+    - 股息率 TTM = 近 365 天每股分红合计 ÷ 不复权收盘价（除权日计入，滚动窗口按自然日）；
+    - 利差 = 股息率 TTM − 美债 10Y（M3 辅助规则用）。
+    """
+    if "daqin_close_raw" not in stock.columns:
+        return
+    raw = pd.to_numeric(stock["daqin_close_raw"], errors="coerce")
+    if not raw.notna().any():
+        return
+    bps = pd.to_numeric(stock["daqin_bps"], errors="coerce").ffill()
+    m["daqin_pb"] = raw / bps
+
+    div = pd.read_sql_query("SELECT ex_date, dps FROM dividend_events ORDER BY ex_date", conn)
+    if div.empty:
+        return
+    idx = pd.DatetimeIndex(stock.index)
+    dps = pd.Series(
+        pd.to_numeric(div["dps"], errors="coerce").to_numpy(),
+        index=pd.DatetimeIndex(pd.to_datetime(div["ex_date"])),
+    )
+    dps_daily = dps.reindex(idx.union(dps.index)).fillna(0.0).sort_index()
+    ttm = dps_daily.rolling("365D").sum().reindex(idx)
+    m["dividend_yield_ttm"] = (ttm.to_numpy() / raw.to_numpy()) * 100.0
+    if "us10y" in m.columns:
+        m["spread_daqin_us10y"] = m["dividend_yield_ttm"] - m["us10y"]
+
+
+def _add_demand(conn: sqlite3.Connection, m: pd.DataFrame) -> None:
+    """需求数据（M1-2/M1-3）→ 交易日对齐（D-13 防未来函数）。
+
+    - 月频运量：视为**次月 10 日**可得（公告发布窗口），`lag1`/`lag2` 在月频上先取滞后月再对齐；
+      `narrow_streak` = 同比回升（降幅收窄）的连续月数（S4 进入条件用）。
+    - 日频电厂：当日可得；`pp_avail_high_streak` / `pp_avail_normal_streak` 为 D5 与 D-22 的连续天数列。
+    """
+    idx = pd.DatetimeIndex(m.index)
+    cfg = load_thresholds()
+
+    cm = pd.read_sql_query("SELECT month, dq_line_volume_yoy FROM company_monthly ORDER BY month", conn)
+    if not cm.empty:
+        yoy = pd.Series(
+            pd.to_numeric(cm["dq_line_volume_yoy"], errors="coerce").to_numpy(),
+            index=pd.to_datetime(cm["month"] + "-01"),
+        )
+        avail = yoy.index + pd.DateOffset(months=1) + pd.Timedelta(days=9)
+        for col, series in (
+            ("dq_vol_yoy", yoy),
+            ("dq_vol_yoy_lag1", yoy.shift(1)),
+            ("dq_vol_yoy_lag2", yoy.shift(2)),
+        ):
+            m[col] = align_to_trading_days(pd.Series(series.to_numpy(), index=avail), idx, lag_days=0).to_numpy()
+        narrowing = yoy.diff() > 0
+        streak = narrowing.groupby((~narrowing).cumsum()).cumsum()
+        m["dq_vol_yoy_narrow_streak"] = align_to_trading_days(
+            pd.Series(streak.to_numpy(), index=avail), idx, lag_days=0
+        ).to_numpy()
+        m["asof_company"] = str(cm["month"].max())
+
+    en = pd.read_sql_query("SELECT date, pp_available_days FROM energy_daily ORDER BY date", conn)
+    if not en.empty:
+        s = pd.Series(
+            pd.to_numeric(en["pp_available_days"], errors="coerce").to_numpy(),
+            index=pd.to_datetime(en["date"]),
+        )
+        aligned = align_to_trading_days(s, idx, lag_days=0)
+        # 停更保护：六大电源站止于 2019-06（D-26），其后不得继续沿用旧值（否则 D5 会误触发）
+        aligned = aligned.where(idx <= s.index.max() + pd.Timedelta(days=STALE_DAYS))
+        m["pp_available_days"] = aligned.to_numpy()
+        m["pp_avail_high_streak"] = _streak(m["pp_available_days"] > cfg.demand.pp_available_days_high)
+        m["pp_avail_normal_streak"] = _streak(m["pp_available_days"] < cfg.repair.pp_avail_normal_days)
 
 
 def _upsert(conn: sqlite3.Connection, m: pd.DataFrame) -> int:

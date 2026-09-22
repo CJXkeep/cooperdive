@@ -27,10 +27,10 @@ CSI300_SYMBOL = "sh000300"
 OVERLAP_DAYS = 7   # 增量起点回退天数（覆盖数据源事后修正）
 
 _STOCK_RENAME = {
-    "close": "daqin_close", "high": "daqin_high", "low": "daqin_low",
+    "open": "daqin_open", "close": "daqin_close", "high": "daqin_high", "low": "daqin_low",
     "volume": "daqin_volume", "amount": "daqin_amount",
 }
-_STOCK_COLS = ["date", "daqin_close", "daqin_high", "daqin_low", "daqin_volume", "daqin_amount"]
+_STOCK_COLS = ["date", "daqin_open", "daqin_close", "daqin_high", "daqin_low", "daqin_volume", "daqin_amount"]
 
 
 def fetch_daqin_daily(start: str, end: str) -> pd.DataFrame:

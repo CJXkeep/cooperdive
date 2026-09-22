@@ -107,6 +107,55 @@ def _write_signal_log(conn: sqlite3.Connection, states: pd.DataFrame) -> int:
     return db.upsert_rows(conn, "signal_log", rows, key="date")
 
 
+def cmd_backtest(args: argparse.Namespace) -> int:
+    """回测（06 §4.6，M4）：重算指标 → 回放状态 → 净值模拟 → 报告；可选防未来函数抽查。"""
+    from daqin.backtest import engine, events, report
+
+    conn = db.connect()
+    try:
+        thresholds = load_thresholds()
+        event = events.get_event(args.event)
+        warm_from = (pd.Timestamp(event.start) - pd.Timedelta(days=args.warmup)).strftime("%Y-%m-%d")
+        n = compute_daily(conn, start=warm_from, end=event.end)      # 保证覆盖 warm-up
+        print(f"[OK]   指标重算 {n} 行（{warm_from} ~ {event.end}）")
+
+        scenarios = [
+            ("基准（无成本 / 现金不计息）", 0.0, 0.0),
+            ("含成本（单边 0.1%）", 10.0, 0.0),
+            ("现金 1.5% 年化", 0.0, 0.015),
+        ]
+        results = []
+        for label, cost, cash in scenarios:
+            cfg = engine.BacktestConfig(
+                start=event.start, end=event.end, warmup_days=args.warmup,
+                cost_bps=cost, cash_yield=cash, label=event.name,
+            )
+            res = engine.run_backtest(conn, cfg, thresholds)
+            results.append((label, res))
+            print(f"       {label}: 收益 {res.summary['total_return']:+.2%}"
+                  f" | 最大回撤 {res.summary['max_drawdown']:.2%}"
+                  f" | 换手 {res.summary['total_turnover']:.2f} | 调仓 {int(res.summary['trades'])} 次")
+
+        main_res = results[0][1]
+        path = report.write_report(
+            main_res, engine.BacktestConfig(start=event.start, end=event.end, warmup_days=args.warmup),
+            event, scenarios=[(lbl, r.summary) for lbl, r in results],
+        )
+        print(f"[OK]   报告：{path}")
+
+        if args.probe:
+            diffs = engine.lookahead_probe(conn, args.probe)
+            bad = {k: v for k, v in diffs.items() if v}
+            print(f"[OK]   防未来函数抽查 {len(diffs)} 个时点：{'全部一致' if not bad else f'不一致 {bad}'}")
+            return 1 if bad else 0
+        return 0
+    except Exception as exc:   # noqa: BLE001
+        print(f"[FAIL] backtest: {type(exc).__name__}: {exc}")
+        return 1
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m daqin.cli", description="daqin 命令行入口")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -125,6 +174,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("signal", help="状态机回放并写入 signal_log")
     p.add_argument("--date", default=None, help="输出指定日期的状态（默认最新）")
     p.set_defaults(fn=cmd_signal)
+
+    p = sub.add_parser("backtest", help="回测（M4）：状态序列 → 净值 + 报告 + 防未来函数抽查")
+    p.add_argument("--event", default="2020", help="事件键（见 daqin/backtest/events.py）")
+    p.add_argument("--warmup", type=int, default=180, help="指标预热自然日（≥120 交易日）")
+    p.add_argument("--probe", nargs="*", default=["2020-03-23", "2020-09-30"],
+                   help="防未来函数抽查日期（传空则跳过）")
+    p.set_defaults(fn=cmd_backtest)
 
     args = parser.parse_args(argv)
     return int(args.fn(args))

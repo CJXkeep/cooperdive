@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS macro_daily (
 -- 行情与估值
 CREATE TABLE IF NOT EXISTS stock_daily (
   date TEXT PRIMARY KEY,
-  daqin_close REAL, daqin_close_raw REAL,
+  daqin_open REAL, daqin_close REAL, daqin_close_raw REAL,
   daqin_high REAL, daqin_low REAL,
   daqin_volume REAL, daqin_amount REAL,
   daqin_bps REAL,
@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS signal_log (
 # 增量迁移：`CREATE TABLE IF NOT EXISTS` 不会给**已存在**的表补列，旧库需显式 ALTER。
 # 约定：任何新增列都必须同时出现在 SCHEMA 与本表（否则老库静默缺列）。
 _MIGRATIONS: dict[str, list[tuple[str, str]]] = {
-    "stock_daily": [("daqin_close_raw", "REAL"), ("daqin_bps", "REAL")],                        # D-27
+    "stock_daily": [("daqin_close_raw", "REAL"), ("daqin_bps", "REAL"),                         # D-27
+                    ("daqin_open", "REAL")],                                                   # M4 回测
     "metrics_daily": [("daqin_pb", "REAL"), ("ma60_below_streak", "INTEGER"),                   # D-25
                       ("pp_avail_normal_streak", "INTEGER")],                                   # D-22
 }

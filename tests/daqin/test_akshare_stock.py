@@ -39,8 +39,9 @@ def _raw_index() -> pd.DataFrame:
 def test_fetch_stock_maps_and_normalizes(monkeypatch) -> None:
     monkeypatch.setattr(mod, "call_with_retry", lambda *a, **kw: _raw_stock())
     df = mod.fetch_daqin_daily("2020-01-01", "2020-01-10")
-    assert list(df.columns) == ["date", "daqin_close", "daqin_high", "daqin_low", "daqin_volume", "daqin_amount"]
+    assert list(df.columns) == ["date", "daqin_open", "daqin_close", "daqin_high", "daqin_low", "daqin_volume", "daqin_amount"]
     assert df["date"].tolist() == ["2020-01-02", "2020-01-03"]
+    assert df["daqin_open"].tolist() == [9.1, 9.2]      # M4：回测执行价
     assert df["daqin_close"].tolist() == [9.2, 9.3]
 
 

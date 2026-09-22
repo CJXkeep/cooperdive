@@ -10,12 +10,13 @@
 from __future__ import annotations
 
 import io
+import os
 import sqlite3
+import time
 from datetime import timedelta
 
 import pandas as pd
 
-from copper.netutil import fetch_text
 from daqin import config
 from daqin.storage import db
 from daqin.thresholds import load_thresholds
@@ -23,11 +24,36 @@ from daqin.thresholds import load_thresholds
 FRED_SERIES = {"us10y": "DGS10", "us10y_real": "DFII10", "us10y_ie": "T10YIE"}
 OVERLAP_DAYS = 30   # FRED 近期值可能被事后修订，回退重取
 
+def _fetch_csv_text(url: str, timeout: int = 30, tries: int = 3) -> str:
+    """FRED 专用请求：最小会话 + 显式代理（`REPO_HTTP_PROXY`）+ 简单重试。
+
+    偏差说明（M1 §5 实验记录）：不复用 `copper/netutil` 的共享会话——实测该会话
+    （浏览器 UA + Retry 适配器）在本机代理环境下访问 FRED 表现为读超时/代理断开，
+    而同一时刻「最小请求形态 + 显式代理」稳定返回 200（多种组合对照）。服务器直连环境下两者等价。
+    """
+    import requests
+
+    proxy = os.environ.get("REPO_HTTP_PROXY")
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    last: Exception | None = None
+    for i in range(tries):
+        try:
+            r = requests.get(url, proxies=proxies, timeout=timeout)
+            r.raise_for_status()
+            r.encoding = "utf-8"
+            return r.text
+        except Exception as exc:   # noqa: BLE001 网络类错误统一重试
+            last = exc
+            if i < tries - 1:
+                time.sleep(2.0 * (i + 1))
+    assert last is not None
+    raise last
+
 
 def fetch_series(series_id: str, start: str, end: str) -> pd.Series:
     """单个序列 → 以 ISO 日期为索引的 Series（缺失观测丢弃）。"""
     endpoint = load_thresholds().data.fred_csv_endpoint
-    text = fetch_text(f"{endpoint}?id={series_id}&cosd={start}&coed={end}")
+    text = _fetch_csv_text(f"{endpoint}?id={series_id}&cosd={start}&coed={end}")
     df = pd.read_csv(io.StringIO(text))
     if df.shape[1] < 2:
         raise ValueError(f"FRED CSV 列数异常（id={series_id}）：{list(df.columns)}")

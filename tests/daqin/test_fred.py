@@ -23,14 +23,14 @@ _CSV = """observation_date,DGS10
 
 
 def test_fetch_series_parses_and_drops_missing(monkeypatch) -> None:
-    monkeypatch.setattr(mod, "fetch_text", lambda url, **kw: _CSV)
+    monkeypatch.setattr(mod, "_fetch_csv_text", lambda url, **kw: _CSV)
     s = mod.fetch_series("DGS10", "2020-01-01", "2020-01-10")
     assert s.index.tolist() == ["2020-01-02", "2020-01-03", "2020-01-07"]   # "." 行被丢弃
     assert s.tolist() == [1.88, 1.80, 1.76]
 
 
 def test_fetch_series_bad_csv_raises(monkeypatch) -> None:
-    monkeypatch.setattr(mod, "fetch_text", lambda url, **kw: "<html>404</html>")
+    monkeypatch.setattr(mod, "_fetch_csv_text", lambda url, **kw: "<html>404</html>")
     with pytest.raises(Exception):
         mod.fetch_series("BADID", "2020-01-01", "2020-01-10")
 

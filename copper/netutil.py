@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 import urllib.request
 
@@ -46,13 +47,21 @@ def session() -> requests.Session:
 
 
 def http_get(url: str, timeout: int = 20, **kwargs) -> requests.Response:
-    """带重试的 GET。"""
+    """带重试的 GET。
+
+    显式代理（代理解脱阀）：环境变量 `REPO_HTTP_PROXY`（如 `http://127.0.0.1:7890`）
+    非空时强制使用——`DISABLE_SYSTEM_PROXY` 的补丁会清空自动代理检测，导致需要代理才能
+    访问的境外源（如 FRED）不可达；设此变量即可显式走代理。不设时行为与原来完全一致。
+    """
     kwargs.setdefault("timeout", timeout)
+    proxy = os.environ.get("REPO_HTTP_PROXY")
+    if proxy and "proxies" not in kwargs:
+        kwargs["proxies"] = {"http": proxy, "https": proxy}
     return session().get(url, **kwargs)
 
 
-def fetch_text(url: str, encoding: str = "utf-8", timeout: int = 20) -> str:
-    r = http_get(url, timeout=timeout)
+def fetch_text(url: str, encoding: str = "utf-8", timeout: int = 20, **kwargs) -> str:
+    r = http_get(url, timeout=timeout, **kwargs)
     r.raise_for_status()
     r.encoding = encoding
     return r.text

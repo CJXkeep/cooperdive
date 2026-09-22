@@ -11,7 +11,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from daqin.indicators.daily import _streak, compute_daily  # noqa: E402
+from daqin.indicators import demand as demand_mod  # noqa: E402
+from daqin.indicators.common import streak as _streak  # noqa: E402
+from daqin.indicators.daily import compute_daily, uncovered_columns  # noqa: E402
+from daqin.thresholds import load_thresholds  # noqa: E402
 from daqin.storage import db  # noqa: E402
 
 
@@ -124,6 +127,44 @@ def test_pb_and_dividend_yield() -> None:
     assert rows[dates[0]]["daqin_pb"] == pytest.approx(2.0)                       # 8.0 / 4.0
     assert rows[dates[0]]["dividend_yield_ttm"] == pytest.approx(0.0)             # 除权日前无 TTM 分红
     assert rows[dates[1]]["dividend_yield_ttm"] == pytest.approx(0.4 / 8.1 * 100, rel=1e-6)
+
+
+def test_metric_columns_fully_covered() -> None:
+    """自检：DDL 的 metrics_daily 全部列都有指标层产出（新增列漏接会立刻失败）。"""
+    assert uncovered_columns(db.connect(":memory:")) == set()
+
+
+def test_qhd_columns(monkeypatch) -> None:
+    """qhd 增强列（D1/D2/D3）：周环比 / 同比 / 连续累库与下降周数（qhd_enabled 时）。"""
+    conn = db.connect(":memory:")
+    _seed(conn, [10.0] * 25)                                   # 2019-10-01 起 25 个自然日
+    import dataclasses
+
+    cfg = load_thresholds()
+    cfg = dataclasses.replace(cfg, demand=dataclasses.replace(cfg.demand, qhd_enabled=True))  # frozen dataclass
+    monkeypatch.setattr(demand_mod, "load_thresholds", lambda: cfg)
+    db.upsert_rows(conn, "industry_weekly", [
+        {"week_end": "2019-10-04", "qhd_inventory": 700.0},
+        {"week_end": "2019-10-11", "qhd_inventory": 750.0},    # +7.14% > 5% → streak 1
+        {"week_end": "2019-10-18", "qhd_inventory": 800.0},    # +6.67% > 5% → streak 2
+    ], key="week_end")
+    compute_daily(conn)
+    rows = {r["date"]: r for r in conn.execute(
+        "SELECT date, qhd_inv_level, qhd_inv_wow, qhd_inv_wow_streak, qhd_inv_down_streak FROM metrics_daily")}
+    assert rows["2019-10-04"]["qhd_inv_level"] == pytest.approx(700.0)
+    assert rows["2019-10-11"]["qhd_inv_wow"] == pytest.approx(50.0 / 700.0 * 100, rel=1e-6)
+    assert rows["2019-10-11"]["qhd_inv_wow_streak"] == 1
+    assert rows["2019-10-18"]["qhd_inv_wow_streak"] == 2
+    assert rows["2019-10-18"]["qhd_inv_down_streak"] == 0
+
+
+def test_qhd_disabled_leaves_columns_null() -> None:
+    """qhd_enabled=false（默认）时不写 qhd 列（保持 NULL）。"""
+    conn = db.connect(":memory:")
+    _seed(conn, [10.0] * 10)
+    db.upsert_rows(conn, "industry_weekly", [{"week_end": "2019-10-04", "qhd_inventory": 800.0}], key="week_end")
+    compute_daily(conn)
+    assert conn.execute("SELECT qhd_inv_level FROM metrics_daily").fetchone()[0] is None
 
 
 def test_demand_alignment_from_monthly() -> None:

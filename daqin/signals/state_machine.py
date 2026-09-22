@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from daqin.signals import rules
@@ -32,6 +34,18 @@ class Debouncer:
         return self.count >= self.days
 
 
+def rebuild_steps_needed(cfg: Thresholds) -> int:
+    """S5 从 `s3_floor` 回补至 `base` 所需的步数（每步 `position.s4_rebuild_step`）。"""
+    p = cfg.position
+    step = max(p.s4_rebuild_step, 1e-9)
+    return max(1, math.ceil((p.base - p.s3_floor) / step - 1e-9))
+
+
+def rebuild_days_needed(cfg: Thresholds) -> int:
+    """S5 走满全部回补步所需的交易日数（进入当天即第 1 步）。"""
+    return (rebuild_steps_needed(cfg) - 1) * max(1, int(cfg.repair.rebuild_step_days)) + 1
+
+
 def new_debouncers(cfg: Thresholds) -> dict[str, Debouncer]:
     days = cfg.debounce.daily_confirm_days
     return {name: Debouncer(days) for name in _DEBOUNCED}
@@ -46,13 +60,14 @@ def next_state(current: str, row, cfg: Thresholds,
     # 统一喂入全部日频防抖器（先全部喂，避免短路导致计数不连续）
     passed = {name: deb[name].feed(fn(row, cfg)[0]) for name, fn in _DEBOUNCED.items()}
 
-    # 0) S4/S5 分支：D-10 降级优先（风险方向 → 立即生效、不经防抖），其次 S4 → S5
+    # 0) S4/S5 分支：D-10 降级优先（风险方向 → 立即生效、不经防抖），其次 S4 → S5 → S0
     if current in ("S4", "S5"):
         if rules.r_k2(row, cfg)[0] or rules.r_k3(row, cfg)[0]:
             return "S3"
-        if current == "S4" and rules.s5_ready(row, cfg)[0]:
-            return "S5"
-        return current   # S5 → S0「回补满」需仓位跟踪，待 M2/M4 定义（M0 §6 遗留）
+        if current == "S4":
+            return "S5" if rules.s5_ready(row, cfg)[0] else "S4"
+        # D-29：S5 按步回补（每 rebuild_step_days 加一步），步数走满 =「回补满」→ S0
+        return "S0" if state_days >= rebuild_days_needed(cfg) else "S5"
 
     # 1) S3 → S4（底部观察）
     if current == "S3" and rules.s4_ready(row, cfg)[0]:
@@ -99,16 +114,22 @@ def _demote(current: str, row, cfg: Thresholds, state_days: int) -> str:
     return current
 
 
-def position_advice(state: str, cfg: Thresholds) -> float:
-    """状态 → 仓位建议（示例口径，03 §3.1 + thresholds.position）。"""
+def position_advice(state: str, cfg: Thresholds, state_days: int = 1) -> float:
+    """状态 → 仓位建议（03 §3.1 + `thresholds.position`）。
+
+    S5 按回补步进（D-29）：`s3_floor + 步数 × s4_rebuild_step`，进入当天算第 1 步，走满 `rebuild_steps_needed` 步到 `base`。
+    """
     p = cfg.position
+    if state == "S5":
+        step_days = max(1, int(cfg.repair.rebuild_step_days))
+        steps = min(rebuild_steps_needed(cfg), 1 + (max(1, state_days) - 1) // step_days)
+        return round(min(p.base, p.s3_floor + steps * p.s4_rebuild_step), 4)
     table = {
         "S0": p.base,
         "S1": p.base,                                       # 不追高
         "S2": p.base * (1 - p.s2_reduce_ratio),             # 减 1/3
         "S3": p.s3_floor,                                   # 一次性减至下限
         "S4": p.s3_floor,                                   # 停止减仓
-        "S5": min(p.base, p.s3_floor + p.s4_rebuild_step),  # 分批回补（M0 简化：一步）
     }
     return round(table[state], 4)
 
@@ -133,6 +154,6 @@ def run_daily(metrics: pd.DataFrame, cfg: Thresholds) -> pd.DataFrame:
             "prev_state": prev,
             "changed": int(state != prev),
             "triggered_rules": ",".join(rules.fired_rules(row, cfg)),
-            "position_advice": position_advice(state, cfg),
+            "position_advice": position_advice(state, cfg, state_days),
         })
     return pd.DataFrame(records)

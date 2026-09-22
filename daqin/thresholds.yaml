@@ -58,6 +58,8 @@ repair:
   inventory_down_weeks: 4      # S5 库存连续下降周数（qhd 增强项，仅 qhd_enabled 时参与）
   # 06 §D-22：S5 自动核——电厂可用天数回落至该值以下视为需求恢复正常（默认口径下 S5 的可达性依赖本键）
   pp_avail_normal_days: 20
+  # 06 §D-29：S5 → S0「回补满」——每 N 个交易日回补一步 position.s4_rebuild_step，走满即回 S0
+  rebuild_step_days: 5
 
 debounce:
   daily_confirm_days: 2        # 日频规则连续成立天数

@@ -74,6 +74,7 @@ class BottomThresholds:
 class RepairThresholds:
     inventory_down_weeks: int
     pp_avail_normal_days: float   # D-22：S5 自动核——可用天数回落至该值以下视为需求恢复正常
+    rebuild_step_days: int        # D-29：S5 回补步进——每 N 个交易日加仓一步（position.s4_rebuild_step）
 
 
 @dataclass(frozen=True)
